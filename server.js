@@ -7,10 +7,21 @@ const MongoStore = require('connect-mongo');
 const bcrypt = require('bcrypt');
 const Achievement = require('./models/Achievement');
 const defaultAchievements = require('./config/achievements');
+require('dotenv').config();
 
 // Add MongoDB connection
 const mongoose = require('mongoose');
-mongoose.connect(process.env.MONGODB_URI || 'mongodb://localhost/tictactoe');
+const dbConfig = {
+    host: process.env.DB_HOST,
+    dialect: 'postgres',
+    logging: process.env.NODE_ENV === 'development' ? console.log : false,
+    dialectOptions: process.env.NODE_ENV === 'production' ? {
+        ssl: {
+            require: true,
+            rejectUnauthorized: false
+        }
+    } : {}
+};
 
 // Add rate limiting
 const limiter = rateLimit({
@@ -431,4 +442,14 @@ function handleForfeit(ws, data) {
             }));
         });
     }
-} 
+}
+
+// Add health check endpoint
+app.get('/health', (req, res) => {
+    res.status(200).json({ status: 'ok' });
+});
+
+// Add proper error handling for WebSocket
+wss.on('error', (error) => {
+    console.error('WebSocket server error:', error);
+}); 
