@@ -12,15 +12,25 @@ require('dotenv').config();
 // Add MongoDB connection
 const mongoose = require('mongoose');
 const dbConfig = {
+    database: process.env.DB_NAME,
+    username: process.env.DB_USER,
+    password: process.env.DB_PASS,
     host: process.env.DB_HOST,
+    port: 5432,
     dialect: 'postgres',
     logging: process.env.NODE_ENV === 'development' ? console.log : false,
-    dialectOptions: process.env.NODE_ENV === 'production' ? {
+    dialectOptions: {
         ssl: {
             require: true,
             rejectUnauthorized: false
         }
-    } : {}
+    },
+    pool: {
+        max: 5,
+        min: 0,
+        acquire: 30000,
+        idle: 10000
+    }
 };
 
 // Add rate limiting
@@ -42,13 +52,24 @@ app.use((req, res, next) => {
 // Serve static files from the public directory
 app.use(express.static(path.join(__dirname, 'public')));
 
-// Add session management
+// Update session configuration
+const pgSession = require('connect-pg-simple')(session);
 app.use(session({
-    secret: process.env.SESSION_SECRET || 'your-secret-key',
+    store: new pgSession({
+        conObject: {
+            connectionString: `postgres://${process.env.DB_USER}:${process.env.DB_PASS}@${process.env.DB_HOST}:5432/${process.env.DB_NAME}`,
+            ssl: {
+                rejectUnauthorized: false
+            }
+        }
+    }),
+    secret: process.env.SESSION_SECRET,
     resave: false,
     saveUninitialized: false,
-    store: MongoStore.create({ mongoUrl: process.env.MONGODB_URI || 'mongodb://localhost/tictactoe' }),
-    cookie: { secure: process.env.NODE_ENV === 'production' }
+    cookie: {
+        secure: process.env.NODE_ENV === 'production',
+        maxAge: 30 * 24 * 60 * 60 * 1000 // 30 days
+    }
 }));
 
 // Start HTTP server
@@ -452,4 +473,16 @@ app.get('/health', (req, res) => {
 // Add proper error handling for WebSocket
 wss.on('error', (error) => {
     console.error('WebSocket server error:', error);
-}); 
+});
+
+// Initialize Sequelize with config
+const sequelize = new Sequelize(dbConfig);
+
+// Test database connection
+sequelize.authenticate()
+    .then(() => {
+        console.log('Database connection established successfully.');
+    })
+    .catch(err => {
+        console.error('Unable to connect to the database:', err);
+    }); 
