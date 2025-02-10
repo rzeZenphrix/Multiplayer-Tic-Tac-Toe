@@ -41,6 +41,9 @@ const connectionStatus = document.createElement('div');
 connectionStatus.id = 'connectionStatus';
 const moveSound = new Audio('data:audio/wav;base64,UklGRl9vT19XQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YU...'); // Add base64 move sound
 const winSound = new Audio('data:audio/wav;base64,UklGRl9vT19XQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YU...'); // Add base64 win sound
+let currentGameMode = 'classic';
+let isAuthenticated = false;
+let currentUser = null;
 
 // Add after other DOM elements
 document.querySelector('.container').prepend(connectionStatus);
@@ -163,6 +166,11 @@ ws.onmessage = (event) => {
         case 'quick_match_found':
             handleQuickMatch(data);
             break;
+        case 'achievement_unlocked':
+            data.achievements.forEach(achievement => {
+                showAchievementUnlock(achievement);
+            });
+            break;
     }
 };
 
@@ -189,42 +197,22 @@ function handleRoomJoined(data) {
 }
 
 function handleRemoteMove(data) {
-    const { index, player, isFirstMove } = data;
-    gameState[index] = player;
-    cells[index].textContent = player;
-    
-    if (isFirstMove) {
-        showNotification('Player X has made the first move!', 'info');
-    }
-    
-    if (checkWin()) {
-        gameActive = false;
-        messageElement.textContent = 'You lost!';
+    if (data.isFirstMove && playerSymbol === 'O') {
+        isMyTurn = true;
+        messageElement.textContent = "Your turn!";
         messageElement.classList.remove('waiting', 'loading');
-        winSound.play().catch(() => {});
-        return;
     }
 
-    if (checkDraw()) {
-        gameActive = false;
-        messageElement.textContent = "It's a draw!";
-        messageElement.classList.remove('waiting', 'loading');
-        return;
-    }
+    const cell = cells[data.index];
+    cell.textContent = data.player;
+    cell.classList.add(data.player.toLowerCase());
+    gameState[data.index] = data.player;
+    moveSound.play();
 
-    currentPlayer = currentPlayer === 'X' ? 'O' : 'X';
-    currentPlayerText.textContent = currentPlayer;
-    isMyTurn = currentPlayer === playerSymbol;
-    
-    if (isMyTurn) {
-        messageElement.textContent = "It's your turn!";
-        messageElement.classList.remove('waiting', 'loading');
-    } else {
-        messageElement.textContent = `Waiting for ${currentPlayer}'s move...`;
-        messageElement.classList.add('waiting', 'loading');
+    // Start timer if it's timed mode and my turn
+    if (currentGameMode === 'timed' && isMyTurn) {
+        startTimer();
     }
-
-    moveSound.play().catch(() => {});
 }
 
 function showGameBoard() {
@@ -327,27 +315,31 @@ leaveRoomBtn.addEventListener('click', () => {
 });
 
 function resetGame() {
-    roomCode = null;
-    playerSymbol = null;
-    isMyTurn = false;
+    gameState = Array(9).fill('');
     gameActive = true;
-    gameState = ['', '', '', '', '', '', '', '', ''];
-    currentPlayer = 'X';
-    
-    // Reset UI
-    roomControls.style.display = 'block';
-    roomInfo.style.display = 'none';
-    messageElement.textContent = '';
-    messageElement.classList.remove('waiting', 'loading');
-    currentPlayerText.textContent = 'X';
     cells.forEach(cell => {
         cell.textContent = '';
+        cell.classList.remove('x', 'o');
     });
-    
-    // Show quick play controls
-    quickPlayControls.style.display = 'block';
-    quickPlayBtn.disabled = false;
-    quickPlayBtn.textContent = 'Quick Play';
+
+    if (playerSymbol === 'X') {
+        isMyTurn = true;
+        messageElement.textContent = "Your turn!";
+    } else {
+        isMyTurn = false;
+        messageElement.textContent = "Waiting for X to play...";
+    }
+
+    // Handle timed mode reset
+    if (currentGameMode === 'timed') {
+        if (timerInterval) {
+            clearInterval(timerInterval);
+            timerInterval = null;
+        }
+        if (isMyTurn) {
+            startTimer();
+        }
+    }
 }
 
 // Add keyboard support for room input
@@ -443,4 +435,376 @@ function handleQuickMatch(data) {
     }
     
     showNotification('Match found!', 'success');
-} 
+    
+    // Add game mode to match data
+    ws.send(JSON.stringify({
+        type: 'set_game_mode',
+        room: roomCode,
+        mode: currentGameMode
+    }));
+}
+
+// Add share functionality
+function share(platform) {
+    const url = 'https://multiplayer-tic-tac-toe-nkee.onrender.com/';
+    const text = 'Play Tic Tac Toe with me!';
+    
+    const shareUrls = {
+        twitter: `https://twitter.com/intent/tweet?url=${url}&text=${text}`,
+        facebook: `https://www.facebook.com/sharer/sharer.php?u=${url}`,
+        whatsapp: `https://wa.me/?text=${text} ${url}`
+    };
+    
+    window.open(shareUrls[platform], '_blank');
+}
+
+// Add authentication functions
+async function login(username, password) {
+    try {
+        const response = await fetch('/auth/login', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ username, password })
+        });
+        const data = await response.json();
+        if (response.ok) {
+            isAuthenticated = true;
+            currentUser = await fetchUserProfile();
+            updateUIForAuthenticatedUser();
+        } else {
+            throw new Error(data.error);
+        }
+    } catch (error) {
+        showNotification(error.message, 'error');
+    }
+}
+
+async function register(username, email, password) {
+    try {
+        const response = await fetch('/auth/register', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ username, email, password })
+        });
+        const data = await response.json();
+        if (response.ok) {
+            showNotification('Registration successful! Please login.', 'success');
+            switchAuthTab('login');
+        } else {
+            throw new Error(data.error);
+        }
+    } catch (error) {
+        showNotification(error.message, 'error');
+    }
+}
+
+// Add game mode variables
+let gameScores = { X: 0, O: 0 };
+let roundNumber = 1;
+let timerInterval = null;
+let timeLeft = 30;
+
+// Update game mode handling
+function handleGameModeSelection(mode) {
+    currentGameMode = mode;
+    document.querySelectorAll('.mode-btn').forEach(btn => {
+        btn.classList.toggle('active', btn.dataset.mode === mode);
+    });
+    
+    // Reset game state for new mode
+    resetGame();
+    gameScores = { X: 0, O: 0 };
+    roundNumber = 1;
+    if (timerInterval) {
+        clearInterval(timerInterval);
+        timerInterval = null;
+    }
+    
+    updateGameModeUI();
+}
+
+function updateGameModeUI() {
+    const modeDisplay = document.getElementById('modeDisplay') || document.createElement('div');
+    modeDisplay.id = 'modeDisplay';
+    
+    let modeText = `Mode: ${currentGameMode.charAt(0).toUpperCase() + currentGameMode.slice(1)}`;
+    if (currentGameMode === 'bestOf3' || currentGameMode === 'bestOf5') {
+        modeText += ` (Round ${roundNumber})`;
+        modeText += ` - Score: X:${gameScores.X} O:${gameScores.O}`;
+    }
+    
+    modeDisplay.textContent = modeText;
+    document.getElementById('playerInfo').appendChild(modeDisplay);
+    
+    if (currentGameMode === 'timed' && isMyTurn) {
+        startTimer();
+    }
+}
+
+function startTimer() {
+    if (timerInterval) clearInterval(timerInterval);
+    timeLeft = 30;
+    
+    const timerDisplay = document.getElementById('timerDisplay') || document.createElement('div');
+    timerDisplay.id = 'timerDisplay';
+    document.getElementById('playerInfo').appendChild(timerDisplay);
+    
+    timerInterval = setInterval(() => {
+        timeLeft--;
+        timerDisplay.textContent = `Time left: ${timeLeft}s`;
+        
+        if (timeLeft <= 0) {
+            clearInterval(timerInterval);
+            handleTimeOut();
+        }
+    }, 1000);
+}
+
+function handleTimeOut() {
+    if (isMyTurn) {
+        // Make a random move if possible
+        const emptyCells = gameState.reduce((acc, cell, index) => {
+            if (cell === '') acc.push(index);
+            return acc;
+        }, []);
+        
+        if (emptyCells.length > 0) {
+            const randomCell = emptyCells[Math.floor(Math.random() * emptyCells.length)];
+            handleCellClick(cells[randomCell]);
+        } else {
+            // Forfeit if no moves available
+            ws.send(JSON.stringify({
+                type: 'forfeit',
+                room: roomCode
+            }));
+        }
+    }
+}
+
+function handleWin(winner) {
+    gameActive = false;
+    if (currentGameMode === 'bestOf3' || currentGameMode === 'bestOf5') {
+        gameScores[winner]++;
+        const maxWins = currentGameMode === 'bestOf3' ? 2 : 3;
+        
+        if (gameScores[winner] >= maxWins) {
+            messageElement.textContent = `Player ${winner} wins the series!`;
+            // Reset scores for next game
+            gameScores = { X: 0, O: 0 };
+            roundNumber = 1;
+        } else {
+            messageElement.textContent = `Player ${winner} wins round ${roundNumber}!`;
+            roundNumber++;
+            // Auto-restart for next round
+            setTimeout(resetGame, 2000);
+        }
+    } else {
+        messageElement.textContent = `Player ${winner} wins!`;
+    }
+    
+    updateGameModeUI();
+}
+
+// Add authentication event handlers
+document.addEventListener('DOMContentLoaded', () => {
+    // Auth tab switching
+    document.querySelectorAll('.auth-tab').forEach(tab => {
+        tab.addEventListener('click', () => {
+            switchAuthTab(tab.dataset.tab);
+        });
+    });
+
+    // Form submissions
+    document.getElementById('loginForm').addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const formData = new FormData(e.target);
+        await login(formData.get('username'), formData.get('password'));
+    });
+
+    document.getElementById('registerForm').addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const formData = new FormData(e.target);
+        await register(
+            formData.get('username'),
+            formData.get('email'),
+            formData.get('password')
+        );
+    });
+
+    // Logout handler
+    document.getElementById('logoutBtn').addEventListener('click', logout);
+
+    // Game mode selection
+    document.querySelectorAll('.mode-btn').forEach(btn => {
+        btn.addEventListener('click', () => handleGameModeSelection(btn.dataset.mode));
+    });
+
+    // Check authentication status on load
+    checkAuthStatus();
+});
+
+// Add authentication helper functions
+function switchAuthTab(tab) {
+    document.querySelectorAll('.auth-tab').forEach(t => {
+        t.classList.toggle('active', t.dataset.tab === tab);
+    });
+    document.getElementById('loginForm').style.display = tab === 'login' ? 'flex' : 'none';
+    document.getElementById('registerForm').style.display = tab === 'register' ? 'flex' : 'none';
+}
+
+async function checkAuthStatus() {
+    try {
+        const response = await fetch('/auth/status');
+        const data = await response.json();
+        if (data.authenticated) {
+            isAuthenticated = true;
+            currentUser = await fetchUserProfile();
+            updateUIForAuthenticatedUser();
+        } else {
+            showAuthModal();
+        }
+    } catch (error) {
+        console.error('Auth status check failed:', error);
+    }
+}
+
+async function fetchUserProfile() {
+    const response = await fetch('/auth/profile');
+    return response.json();
+}
+
+function updateUIForAuthenticatedUser() {
+    document.getElementById('authModal').style.display = 'none';
+    document.getElementById('userProfile').style.display = 'block';
+    document.getElementById('username').textContent = currentUser.username;
+    document.getElementById('gamesPlayed').textContent = currentUser.stats.gamesPlayed;
+    document.getElementById('gamesWon').textContent = currentUser.stats.gamesWon;
+    document.getElementById('winStreak').textContent = currentUser.stats.winStreak;
+    
+    updateGameHistory();
+    updateAchievementDisplay();
+}
+
+async function logout() {
+    try {
+        await fetch('/auth/logout', { method: 'POST' });
+        isAuthenticated = false;
+        currentUser = null;
+        document.getElementById('userProfile').style.display = 'none';
+        showAuthModal();
+    } catch (error) {
+        showNotification('Logout failed', 'error');
+    }
+}
+
+function showAuthModal() {
+    document.getElementById('authModal').style.display = 'block';
+    switchAuthTab('login');
+}
+
+// Add achievement notification function
+function showAchievementUnlock(achievement) {
+    const notification = document.createElement('div');
+    notification.className = 'achievement-unlock';
+    notification.innerHTML = `
+        <div class="achievement-icon">${achievement.icon}</div>
+        <div class="achievement-info">
+            <h3>${achievement.name}</h3>
+            <p>${achievement.description}</p>
+        </div>
+    `;
+    document.body.appendChild(notification);
+    
+    setTimeout(() => {
+        notification.classList.add('show');
+        setTimeout(() => {
+            notification.classList.remove('show');
+            setTimeout(() => notification.remove(), 500);
+        }, 3000);
+    }, 100);
+}
+
+// Add game history functions
+function updateGameHistory() {
+    const historyList = document.querySelector('.history-list');
+    historyList.innerHTML = '';
+    
+    currentUser.gameHistory.slice(0, 10).forEach(game => {
+        const entry = document.createElement('div');
+        entry.className = `game-entry ${game.result}`;
+        
+        const date = new Date(game.date);
+        const timeAgo = getTimeAgo(date);
+        
+        entry.innerHTML = `
+            <div class="game-result ${game.result}">${game.result.toUpperCase()}</div>
+            <div class="game-details">
+                vs ${game.opponent} • ${timeAgo}
+            </div>
+        `;
+        
+        historyList.appendChild(entry);
+    });
+}
+
+function getTimeAgo(date) {
+    const seconds = Math.floor((new Date() - date) / 1000);
+    
+    const intervals = {
+        year: 31536000,
+        month: 2592000,
+        week: 604800,
+        day: 86400,
+        hour: 3600,
+        minute: 60
+    };
+    
+    for (const [unit, secondsInUnit] of Object.entries(intervals)) {
+        const interval = Math.floor(seconds / secondsInUnit);
+        if (interval >= 1) {
+            return `${interval} ${unit}${interval === 1 ? '' : 's'} ago`;
+        }
+    }
+    
+    return 'Just now';
+}
+
+// Add achievement display functions
+function updateAchievementDisplay() {
+    const achievementGrid = document.querySelector('.achievement-grid');
+    achievementGrid.innerHTML = '';
+    
+    achievements.forEach(achievement => {
+        const isUnlocked = currentUser.achievements.some(a => a.name === achievement.name);
+        
+        const card = document.createElement('div');
+        card.className = `achievement-card ${isUnlocked ? 'unlocked' : 'locked'}`;
+        
+        card.innerHTML = `
+            <div class="icon">${achievement.icon}</div>
+            <div class="name">${achievement.name}</div>
+            <div class="description">${achievement.description}</div>
+        `;
+        
+        achievementGrid.appendChild(card);
+    });
+}
+
+// Add filter handlers
+document.querySelectorAll('.filter-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+        document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        
+        const filter = btn.dataset.filter;
+        const entries = document.querySelectorAll('.game-entry');
+        
+        entries.forEach(entry => {
+            if (filter === 'all' || entry.classList.contains(filter)) {
+                entry.style.display = 'flex';
+            } else {
+                entry.style.display = 'none';
+            }
+        });
+    });
+}); 

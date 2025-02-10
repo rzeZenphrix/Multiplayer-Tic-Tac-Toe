@@ -1,6 +1,22 @@
 const express = require('express');
 const { Server } = require('ws');
 const path = require('path');
+const session = require('express-session');
+const rateLimit = require('express-rate-limit');
+const MongoStore = require('connect-mongo');
+const bcrypt = require('bcrypt');
+const Achievement = require('./models/Achievement');
+const defaultAchievements = require('./config/achievements');
+
+// Add MongoDB connection
+const mongoose = require('mongoose');
+mongoose.connect(process.env.MONGODB_URI || 'mongodb://localhost/tictactoe');
+
+// Add rate limiting
+const limiter = rateLimit({
+    windowMs: 15 * 60 * 1000, // 15 minutes
+    max: 100 // limit each IP to 100 requests per windowMs
+});
 
 const app = express();
 const port = process.env.PORT || 8080;
@@ -14,6 +30,15 @@ app.use((req, res, next) => {
 
 // Serve static files from the public directory
 app.use(express.static(path.join(__dirname, 'public')));
+
+// Add session management
+app.use(session({
+    secret: process.env.SESSION_SECRET || 'your-secret-key',
+    resave: false,
+    saveUninitialized: false,
+    store: MongoStore.create({ mongoUrl: process.env.MONGODB_URI || 'mongodb://localhost/tictactoe' }),
+    cookie: { secure: process.env.NODE_ENV === 'production' }
+}));
 
 // Start HTTP server
 const server = app.listen(port, () => {
@@ -53,6 +78,12 @@ wss.on('connection', (ws) => {
                 break;
             case 'quick_play':
                 handleQuickPlay(ws);
+                break;
+            case 'set_game_mode':
+                handleSetGameMode(ws, data);
+                break;
+            case 'forfeit':
+                handleForfeit(ws, data);
                 break;
         }
     });
@@ -135,15 +166,29 @@ function handleMove(ws, data) {
     const room = rooms.get(data.room);
     if (room) {
         room.gameState[data.index] = data.player;
+        room.moves = room.moves || [];
+        room.moves.push({
+            position: data.index,
+            player: data.player,
+            timestamp: new Date()
+        });
+
+        // Check for game end
+        if (checkWin(room.gameState, data.player)) {
+            const winner = room.players.find(p => p === ws);
+            if (winner && winner.userId) {
+                updateUserStats(winner.userId, 'win', room.moves);
+                checkAchievements(winner.userId);
+            }
+        }
+
         room.players.forEach(player => {
             if (player !== ws) {
-                // Add first move notification for X's first move
-                const isFirstMove = room.gameState.filter(cell => cell !== '').length === 1;
                 player.send(JSON.stringify({
                     type: 'move',
                     index: data.index,
                     player: data.player,
-                    isFirstMove
+                    isFirstMove: room.moves.length === 1
                 }));
             }
         });
@@ -183,7 +228,11 @@ function handleQuickPlay(ws) {
         // Create new room with both players
         rooms.set(roomCode, {
             players: [opponent, ws],
-            gameState: Array(9).fill('')
+            gameState: Array(9).fill(''),
+            mode: 'classic',
+            scores: { X: 0, O: 0 },
+            roundNumber: 1,
+            moves: []
         });
         
         // Notify first player (X)
@@ -205,5 +254,181 @@ function handleQuickPlay(ws) {
         ws.send(JSON.stringify({
             type: 'waiting_for_match'
         }));
+    }
+}
+
+// Add authentication middleware
+const authMiddleware = (req, res, next) => {
+    if (!req.session.userId) {
+        return res.status(401).json({ error: 'Not authenticated' });
+    }
+    next();
+};
+
+// Add authentication routes
+app.post('/auth/register', async (req, res) => {
+    try {
+        const { username, email, password } = req.body;
+        const hashedPassword = await bcrypt.hash(password, 10);
+        const user = new User({ username, email, password: hashedPassword });
+        await user.save();
+        res.status(201).json({ message: 'User created successfully' });
+    } catch (error) {
+        res.status(400).json({ error: error.message });
+    }
+});
+
+app.post('/auth/login', async (req, res) => {
+    try {
+        const { username, password } = req.body;
+        const user = await User.findOne({ username });
+        if (!user) {
+            return res.status(400).json({ error: 'User not found' });
+        }
+        const validPassword = await bcrypt.compare(password, user.password);
+        if (!validPassword) {
+            return res.status(400).json({ error: 'Invalid password' });
+        }
+        req.session.userId = user._id;
+        res.json({ message: 'Logged in successfully' });
+    } catch (error) {
+        res.status(400).json({ error: error.message });
+    }
+});
+
+app.get('/auth/status', (req, res) => {
+    res.json({ authenticated: !!req.session.userId });
+});
+
+app.get('/auth/profile', authMiddleware, async (req, res) => {
+    try {
+        const user = await User.findById(req.session.userId);
+        res.json(user);
+    } catch (error) {
+        res.status(400).json({ error: error.message });
+    }
+});
+
+app.post('/auth/logout', (req, res) => {
+    req.session.destroy();
+    res.json({ message: 'Logged out successfully' });
+});
+
+// Initialize achievements
+async function initializeAchievements() {
+    try {
+        const count = await Achievement.countDocuments();
+        if (count === 0) {
+            await Achievement.insertMany(defaultAchievements);
+        }
+    } catch (error) {
+        console.error('Failed to initialize achievements:', error);
+    }
+}
+
+initializeAchievements();
+
+// Add achievement check function
+async function checkAchievements(userId) {
+    try {
+        const user = await User.findById(userId);
+        const achievements = await Achievement.find();
+        const newAchievements = [];
+
+        for (const achievement of achievements) {
+            const alreadyUnlocked = user.achievements.some(a => a.name === achievement.name);
+            if (!alreadyUnlocked) {
+                let unlocked = false;
+                switch (achievement.condition) {
+                    case 'wins':
+                        unlocked = user.stats.gamesWon >= achievement.threshold;
+                        break;
+                    case 'streak':
+                        unlocked = user.stats.winStreak >= achievement.threshold;
+                        break;
+                    case 'games':
+                        unlocked = user.stats.gamesPlayed >= achievement.threshold;
+                        break;
+                    case 'perfect':
+                        // Check game history for perfect games
+                        const perfectGames = user.gameHistory.filter(game => 
+                            game.result === 'win' && game.moves.length <= 5
+                        ).length;
+                        unlocked = perfectGames >= achievement.threshold;
+                        break;
+                }
+
+                if (unlocked) {
+                    user.achievements.push({
+                        name: achievement.name,
+                        unlockedAt: new Date()
+                    });
+                    newAchievements.push(achievement);
+                }
+            }
+        }
+
+        if (newAchievements.length > 0) {
+            await user.save();
+            return newAchievements;
+        }
+        return [];
+    } catch (error) {
+        console.error('Failed to check achievements:', error);
+        return [];
+    }
+}
+
+// Add user stats update function
+async function updateUserStats(userId, result, moves) {
+    try {
+        const user = await User.findById(userId);
+        user.stats.gamesPlayed++;
+        
+        if (result === 'win') {
+            user.stats.gamesWon++;
+            user.stats.currentStreak++;
+            user.stats.winStreak = Math.max(user.stats.winStreak, user.stats.currentStreak);
+        } else {
+            user.stats.currentStreak = 0;
+        }
+
+        user.gameHistory.push({
+            result,
+            moves,
+            date: new Date()
+        });
+
+        await user.save();
+    } catch (error) {
+        console.error('Failed to update user stats:', error);
+    }
+}
+
+// Add handler for game mode setting
+function handleSetGameMode(ws, data) {
+    const room = rooms.get(data.room);
+    if (room) {
+        room.mode = data.mode;
+        room.players.forEach(player => {
+            player.send(JSON.stringify({
+                type: 'mode_updated',
+                mode: data.mode
+            }));
+        });
+    }
+}
+
+// Add forfeit handler
+function handleForfeit(ws, data) {
+    const room = rooms.get(data.room);
+    if (room) {
+        const winner = room.players.find(p => p !== ws);
+        room.players.forEach(player => {
+            player.send(JSON.stringify({
+                type: 'game_end',
+                result: player === winner ? 'win' : 'forfeit'
+            }));
+        });
     }
 } 
