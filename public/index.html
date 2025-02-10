@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Multiplayer Tic Tac Toe</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div class="container">
+        <h1>Tic Tac Toe</h1>
+        
+        <!-- Add before room controls -->
+        <div id="quickPlayControls">
+            <button id="quickPlayBtn" class="primary-button">Quick Play</button>
+            <p>- or -</p>
+        </div>
+        
+        <!-- Add room controls -->
+        <div id="roomControls">
+            <input type="text" id="roomInput" placeholder="Enter Room Code">
+            <button id="createRoom">Create Room</button>
+            <button id="joinRoom">Join Room</button>
+        </div>
+        
+        <!-- Add room info -->
+        <div id="roomInfo" style="display: none;">
+            <p>Room Code: <span id="roomCode"></span></p>
+            <p>You are: <span id="playerSymbol"></span></p>
+            <button id="leaveRoom" class="secondary-button">Leave Room</button>
+        </div>
+        
+        <!-- Existing game elements -->
+        <div id="playerInfo">
+            <p>Current Player: <span id="currentPlayer">X</span></p>
+        </div>
+        <div class="board" id="board">
+            <div class="cell" data-cell></div>
+            <div class="cell" data-cell></div>
+            <div class="cell" data-cell></div>
+            <div class="cell" data-cell></div>
+            <div class="cell" data-cell></div>
+            <div class="cell" data-cell></div>
+            <div class="cell" data-cell></div>
+            <div class="cell" data-cell></div>
+            <div class="cell" data-cell></div>
+        </div>
+        <div class="tooltip">
+            💡 Tip: Use numpad (1-9) to play
+        </div>
+        <div id="message"></div>
+        <button id="restartButton">Restart Game</button>
+        <br> </br>
+        <p>Made by <a href="https://instagram.com/zenphrix" target="_blank">zenphrix</a></p>
+    </div>
+    <script src="script.js"></script>
+</body>
+
+
+</html> 
