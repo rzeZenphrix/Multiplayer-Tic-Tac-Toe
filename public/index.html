@@ -14,14 +14,14 @@
     
     <!-- Open Graph / Facebook -->
     <meta property="og:type" content="website">
-    <meta property="og:url" content="https://multiplayer-tic-tac-toe-nkee.onrender.com/">
+    <meta property="og:url" content="https://multiplayer-tic-tac-toe.onrender.com/">
     <meta property="og:title" content="Multiplayer Tic Tac Toe - Play Online with Friends">
     <meta property="og:description" content="Play Tic Tac Toe online with friends! Free multiplayer game with quick matchmaking, custom rooms, and real-time gameplay.">
     <meta property="og:image" content="https://multiplayer-tic-tac-toe.onrender.com/preview.png">
 
     <!-- Twitter -->
     <meta property="twitter:card" content="summary_large_image">
-    <meta property="twitter:url" content="https://multiplayer-tic-tac-toe-nkee.onrender.com/">
+    <meta property="twitter:url" content="https://multiplayer-tic-tac-toe.onrender.com/">
     <meta property="twitter:title" content="Multiplayer Tic Tac Toe - Play Online with Friends">
     <meta property="twitter:description" content="Play Tic Tac Toe online with friends! Free multiplayer game with quick matchmaking, custom rooms, and real-time gameplay.">
     <meta property="twitter:image" content="https://multiplayer-tic-tac-toe.onrender.com/preview.png">
@@ -36,101 +36,44 @@
     <meta name="theme-color" content="#2c3e50">
     
     <!-- Canonical URL -->
-    <meta rel="canonical" href="https://multiplayer-tic-tac-toe-nkee.onrender.com/">
+    <meta rel="canonical" href="https://multiplayer-tic-tac-toe.onrender.com/">
 
     <link rel="stylesheet" href="styles.css">
-
-    <!-- Add in head -->
-    <script async src="https://www.googletagmanager.com/gtag/js?id=YOUR-GA-ID"></script>
-    <script>
-      window.dataLayer = window.dataLayer || [];
-      function gtag(){dataLayer.push(arguments);}
-      gtag('js', new Date());
-      gtag('config', 'YOUR-GA-ID');
-    </script>
 </head>
 <body>
-    <!-- Structured data script -->
+    <!-- Add structured data for rich results -->
     <script type="application/ld+json">
-        <!-- ... -->
+    {
+      "@context": "https://schema.org",
+      "@type": "WebApplication",
+      "name": "Multiplayer Tic Tac Toe",
+      "description": "Play Tic Tac Toe online with friends! Free multiplayer game with quick matchmaking, custom rooms, and real-time gameplay.",
+      "url": "https://multiplayer-tic-tac-toe.onrender.com/",
+      "applicationCategory": "GameApplication",
+      "genre": "Puzzle",
+      "browserRequirements": "Requires JavaScript",
+      "offers": {
+        "@type": "Offer",
+        "price": "0",
+        "priceCurrency": "USD"
+      },
+      "author": {
+        "@type": "Person",
+        "name": "zenphrix"
+      }
+    }
     </script>
-
-    <!-- Auth Modal -->
-    <div id="authModal" class="modal">
-        <div class="modal-content">
-            <div class="auth-tabs">
-                <button class="auth-tab active" data-tab="login">Login</button>
-                <button class="auth-tab" data-tab="register">Register</button>
-            </div>
-            
-            <form id="loginForm" class="auth-form">
-                <input type="text" placeholder="Username" name="username" required>
-                <input type="password" placeholder="Password" name="password" required>
-                <button type="submit">Login</button>
-                <p class="error-message"></p>
-            </form>
-            
-            <form id="registerForm" class="auth-form" style="display: none;">
-                <input type="text" placeholder="Username" name="username" required>
-                <input type="email" placeholder="Email" name="email" required>
-                <input type="password" placeholder="Password" name="password" required>
-                <button type="submit">Register</button>
-                <p class="error-message"></p>
-            </form>
-        </div>
-    </div>
 
     <div class="container">
         <h1>Tic Tac Toe</h1>
-
-        <!-- User Profile -->
-        <div id="userProfile" style="display: none;">
-            <div class="profile-header">
-                <span id="username"></span>
-                <button id="logoutBtn">Logout</button>
-            </div>
-            <div class="stats">
-                <div class="stat-item">
-                    <span class="stat-label">Games Played:</span>
-                    <span id="gamesPlayed">0</span>
-                </div>
-                <div class="stat-item">
-                    <span class="stat-label">Wins:</span>
-                    <span id="gamesWon">0</span>
-                </div>
-                <div class="stat-item">
-                    <span class="stat-label">Win Streak:</span>
-                    <span id="winStreak">0</span>
-                </div>
-            </div>
-        </div>
-
-        <!-- Game Mode Controls -->
-        <div id="gameModeControls">
-            <h3>Select Game Mode</h3>
-            <div class="mode-buttons">
-                <button class="mode-btn active" data-mode="classic">Classic</button>
-                <button class="mode-btn" data-mode="bestOf3">Best of 3</button>
-                <button class="mode-btn" data-mode="bestOf5">Best of 5</button>
-                <button class="mode-btn" data-mode="timed">Timed Mode</button>
-            </div>
-        </div>
-
-        <!-- Achievements -->
-        <div id="achievements" class="panel">
-            <h3>Achievements</h3>
-            <div class="achievement-grid">
-                <!-- Achievements will be added here dynamically -->
-            </div>
-        </div>
-
-        <!-- Quick Play Controls -->
+        
+        <!-- Add before room controls -->
         <div id="quickPlayControls">
             <button id="quickPlayBtn" class="primary-button">Quick Play</button>
             <p>- or -</p>
         </div>
         
-        <!-- Room Controls -->
+        <!-- Add room controls -->
         <div id="roomControls">
             <input type="text" id="roomInput" placeholder="Enter Room Code">
             <button id="createRoom">Create Room</button>
@@ -160,14 +103,12 @@
             <div class="cell" data-cell></div>
         </div>
         <div class="tooltip">
-             Tip: Use numpad (1-9) to play
+            💡 Tip: Use numpad (1-9) to play
         </div>
         <div id="message"></div>
         <button id="restartButton">Restart Game</button>
         <br> </br>
-        <p>Made with ❤️ by <a href="https://instagram.com/zenphrix" target="_blank">zenphrix</a></p>
-        <br> </br>
-        <p style="font-size: 12px; color: #ffff; text-align: center;">If you see too many "Copy" buttons, please refresh the page.</p>
+        <p>Made by <a href="https://instagram.com/zenphrix" target="_blank">zenphrix</a></p>
     </div>
     <script src="script.js"></script>
 </body>
